@@ -27,7 +27,7 @@
 // Custom includes for Lora-Shuttle functionality
 #if defined(ARCH_ESP32)
 #include <WiFi.h>
-#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #endif
 
@@ -727,7 +727,84 @@ ExternalNotificationModule::ClickType ExternalNotificationModule::checkButton()
 }
 
 /**
- * Send message to Telegram bot with metadata
+ * Async task to send message to Telegram bot
+ * Runs in separate FreeRTOS task to avoid blocking main loop
+ */
+struct TelegramMessageData {
+    String botToken;
+    String chatID;
+    String fromID;
+    String messageText;
+    int rssi;
+    float snr;
+    uint8_t hopLimit;
+};
+
+static void sendTelegramTask(void* parameter) {
+    TelegramMessageData* data = (TelegramMessageData*)parameter;
+    
+    WiFiClientSecure client;
+    client.setInsecure(); // Skip certificate verification (not recommended for production)
+    
+    const char* host = "api.telegram.org";
+    const int httpsPort = 443;
+    
+    if (!client.connect(host, httpsPort)) {
+        LOG_ERROR("Telegram connection failed");
+        delete data;
+        vTaskDelete(NULL);
+        return;
+    }
+    
+    // Build JSON payload
+    StaticJsonDocument<512> doc;
+    doc["chat_id"] = data->chatID;
+    
+    String messageBody = "📡 Meshtastic Message\n\n";
+    messageBody += "From: " + data->fromID + "\n";
+    messageBody += "Text: " + data->messageText + "\n";
+    messageBody += "RSSI: " + String(data->rssi) + " dBm\n";
+    messageBody += "SNR: " + String(data->snr, 2) + " dB\n";
+    messageBody += "Hop Limit: " + String(data->hopLimit) + "\n";
+    
+    doc["text"] = messageBody;
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    // Build HTTP request
+    String url = "/bot" + data->botToken + "/sendMessage";
+    String request = "POST " + url + " HTTP/1.1\r\n";
+    request += "Host: " + String(host) + "\r\n";
+    request += "Content-Type: application/json\r\n";
+    request += "Content-Length: " + String(payload.length()) + "\r\n";
+    request += "Connection: close\r\n\r\n";
+    request += payload;
+    
+    client.print(request);
+    
+    // Wait for response (with timeout)
+    unsigned long timeout = millis();
+    while (client.connected() && millis() - timeout < 5000) {
+        if (client.available()) {
+            String line = client.readStringUntil('\n');
+            if (line.startsWith("HTTP/1.1")) {
+                if (line.indexOf("200") > 0) {
+                    LOG_INFO("Telegram message sent successfully");
+                } else {
+                    LOG_WARN("Telegram response: %s", line.c_str());
+                }
+            }
+        }
+    }
+    
+    client.stop();
+    delete data;
+    vTaskDelete(NULL); // Delete this task
+}
+
+/**
+ * Send message to Telegram bot with metadata (non-blocking)
  */
 void ExternalNotificationModule::sendTelegramMessage(const meshtastic_MeshPacket &packet)
 {
@@ -741,51 +818,38 @@ void ExternalNotificationModule::sendTelegramMessage(const meshtastic_MeshPacket
         return;
     }
 
-    HTTPClient http;
-    String url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
-    
-    http.begin(url);
-    http.addHeader("Content-Type", "application/json");
+    // Prepare data for async task
+    TelegramMessageData* data = new TelegramMessageData();
+    data->botToken = botToken;
+    data->chatID = chatID;
     
     // Extract message text
-    String messageText = "Message data unavailable";
     if (packet.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && packet.decoded.payload.size > 0) {
-        messageText = String((char *)packet.decoded.payload.bytes);
+        data->messageText = String((char *)packet.decoded.payload.bytes);
+    } else {
+        data->messageText = "Message data unavailable";
     }
     
     // Format sender ID
     char fromID[32];
     snprintf(fromID, sizeof(fromID), "!%08x", packet.from);
+    data->fromID = String(fromID);
     
-    // Build JSON payload
-    StaticJsonDocument<512> doc;
-    doc["chat_id"] = chatID;
+    data->rssi = packet.rx_rssi;
+    data->snr = packet.rx_snr;
+    data->hopLimit = packet.hop_limit;
     
-    String messageBody = "📡 Meshtastic Message\n\n";
-    messageBody += "From: " + String(fromID) + "\n";
-    messageBody += "Text: " + messageText + "\n";
-    messageBody += "RSSI: " + String(packet.rx_rssi) + " dBm\n";
-    messageBody += "SNR: " + String(packet.rx_snr) + " dB\n";
-    messageBody += "Hop Limit: " + String(packet.hop_limit) + "\n";
+    // Create FreeRTOS task to send message asynchronously
+    xTaskCreate(
+        sendTelegramTask,      // Task function
+        "TelegramSend",        // Task name
+        4096,                  // Stack size (bytes)
+        (void*)data,           // Task parameters
+        1,                     // Priority
+        NULL                   // Task handle
+    );
     
-    doc["text"] = messageBody;
-    
-    String payload;
-    serializeJson(doc, payload);
-    
-    int httpCode = http.POST(payload);
-    
-    if (httpCode > 0) {
-        LOG_INFO("Telegram message sent, response code: %d", httpCode);
-        if (httpCode == HTTP_CODE_OK) {
-            String response = http.getString();
-            LOG_DEBUG("Telegram response: %s", response.c_str());
-        }
-    } else {
-        LOG_ERROR("Telegram send failed: %s", http.errorToString(httpCode).c_str());
-    }
-    
-    http.end();
+    LOG_INFO("Telegram send task created");
 }
 
 #endif // ARCH_ESP32
