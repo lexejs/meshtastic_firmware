@@ -63,6 +63,25 @@ class ExternalNotificationModule : public SinglePortModule, private concurrency:
     virtual AdminMessageHandleResult handleAdminMessageForModule(const meshtastic_MeshPacket &mp,
                                                                  meshtastic_AdminMessage *request,
                                                                  meshtastic_AdminMessage *response) override;
+
+  private:
+    // Custom alert logic for Lora-Shuttle board
+    bool isAlertActive = false;
+    unsigned long lastBlinkTime = 0;
+    unsigned long lastBeepTime = 0;
+
+    // Button handling logic
+    int buttonState = HIGH;
+    int lastButtonState = HIGH;
+    unsigned long lastDebounceTime = 0;
+    int clickCount = 0;
+    unsigned long lastClickTime = 0;
+    
+    enum ClickType { NONE, SINGLE_CLICK, DOUBLE_CLICK, TRIPLE_CLICK };
+    ClickType checkButton();
+
+    // Telegram integration
+    void sendTelegramMessage(const meshtastic_MeshPacket &packet);
 };
 
 extern ExternalNotificationModule *externalNotificationModule;

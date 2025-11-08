@@ -24,6 +24,13 @@
 #include "mesh/generated/meshtastic/rtttl.pb.h"
 #include <Arduino.h>
 
+// Custom includes for Lora-Shuttle functionality
+#if defined(ARCH_ESP32)
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+#endif
+
 #ifdef HAS_NCP5623
 #include <graphics/RAKled.h>
 #endif
@@ -72,6 +79,19 @@ bool ascending = true;
 #define EXT_NOTIFICATION_DEFAULT_THREAD_MS 25
 
 #define ASCII_BELL 0x07
+
+// Custom settings for Lora-Shuttle board
+#define CUSTOM_LED_PIN 0          // GPIO0 for LED
+#define CUSTOM_BUZZER_PIN 1       // GPIO1 for buzzer
+#define CUSTOM_BUTTON_PIN 2       // GPIO2 for button
+#define DEBOUNCE_DELAY 50         // 50ms debounce
+#define BLINK_INTERVAL 500        // Blink every 500ms
+#define BEEP_INTERVAL 60000       // Beep every minute
+#define CLICK_TIMEOUT 500         // 500ms between clicks
+
+// Telegram settings - replace with your values
+String botToken = "YOUR_TELEGRAM_BOT_TOKEN";
+String chatID = "YOUR_TELEGRAM_CHAT_ID";
 
 meshtastic_RTTTLConfig rtttlConfig;
 
@@ -205,6 +225,49 @@ int32_t ExternalNotificationModule::runOnce()
                 rtttl::begin(config.device.buzzer_gpio, rtttlConfig.ringtone);
             }
         }
+
+        // Custom alert logic for Lora-Shuttle
+#if defined(ARCH_ESP32)
+        ClickType click = checkButton();
+        
+        // Handle button clicks
+        if (click == DOUBLE_CLICK) {
+            LOG_INFO("Double click detected - performing action 1");
+            // Add your custom action here
+        }
+        if (click == TRIPLE_CLICK) {
+            LOG_INFO("Triple click detected - performing action 2");
+            // Add your custom action here
+        }
+        
+        // Alert logic
+        if (isAlertActive) {
+            bool bleConnected = (nimbleBluetooth && nimbleBluetooth->isConnected());
+            
+            // Stop conditions: BLE connected OR single button click
+            if (bleConnected || click == SINGLE_CLICK) {
+                LOG_INFO("Stopping custom alert");
+                isAlertActive = false;
+                digitalWrite(CUSTOM_LED_PIN, LOW);
+                digitalWrite(CUSTOM_BUZZER_PIN, LOW);
+            } else {
+                // LED blinking
+                if (millis() - lastBlinkTime > BLINK_INTERVAL) {
+                    lastBlinkTime = millis();
+                    digitalWrite(CUSTOM_LED_PIN, !digitalRead(CUSTOM_LED_PIN));
+                }
+                
+                // Periodic beeping (every minute)
+                if (millis() - lastBeepTime > BEEP_INTERVAL) {
+                    lastBeepTime = millis();
+                    LOG_INFO("Alert beep");
+                    digitalWrite(CUSTOM_BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(CUSTOM_BUZZER_PIN, LOW);
+                }
+            }
+        }
+#endif
 
         return EXT_NOTIFICATION_DEFAULT_THREAD_MS;
     }
@@ -403,6 +466,18 @@ ExternalNotificationModule::ExternalNotificationModule()
         pixels.clear(); // Set all pixel colors to 'off'
         pixels.setBrightness(moduleConfig.ambient_lighting.current);
 #endif
+
+        // Initialize custom pins for Lora-Shuttle
+        pinMode(CUSTOM_LED_PIN, OUTPUT);
+        digitalWrite(CUSTOM_LED_PIN, LOW);
+        
+        pinMode(CUSTOM_BUZZER_PIN, OUTPUT);
+        digitalWrite(CUSTOM_BUZZER_PIN, LOW);
+        
+        pinMode(CUSTOM_BUTTON_PIN, INPUT_PULLUP);
+        
+        LOG_INFO("Custom Lora-Shuttle pins initialized: LED=%d, BUZZER=%d, BUTTON=%d", 
+                 CUSTOM_LED_PIN, CUSTOM_BUZZER_PIN, CUSTOM_BUTTON_PIN);
     } else {
         LOG_INFO("External Notification Module Disabled");
         disable();
@@ -419,6 +494,30 @@ ProcessMessage ExternalNotificationModule::handleReceived(const meshtastic_MeshP
         drv.go();
 #endif
         if (!isFromUs(&mp)) {
+            // Custom logic for Lora-Shuttle board
+#if defined(ARCH_ESP32)
+            bool wifiConnected = WiFi.isConnected();
+            bool bleConnected = (nimbleBluetooth && nimbleBluetooth->isConnected());
+            
+            if (wifiConnected) {
+                // WiFi is connected - send to Telegram
+                LOG_INFO("WiFi connected, sending message to Telegram");
+                sendTelegramMessage(mp);
+            } else if (!bleConnected) {
+                // WiFi OFF and BLE not connected - start alert
+                if (!isAlertActive) {
+                    LOG_INFO("Starting custom alert - BLE not connected, WiFi OFF");
+                    isAlertActive = true;
+                    lastBlinkTime = millis();
+                    lastBeepTime = millis();
+                    
+                    // Initial beep
+                    digitalWrite(CUSTOM_BUZZER_PIN, HIGH);
+                    delay(100);
+                    digitalWrite(CUSTOM_BUZZER_PIN, LOW);
+                }
+            }
+#endif
             // Check if the message contains a bell character. Don't do this loop for every pin, just once.
             auto &p = mp.decoded;
             bool containsBell = false;
@@ -584,3 +683,109 @@ void ExternalNotificationModule::handleSetRingtone(const char *from_msg)
         nodeDB->saveProto(rtttlConfigFile, meshtastic_RTTTLConfig_size, &meshtastic_RTTTLConfig_msg, &rtttlConfig);
     }
 }
+
+// Custom methods implementation
+#if defined(ARCH_ESP32)
+
+/**
+ * Check button state and detect single/double/triple clicks
+ */
+ExternalNotificationModule::ClickType ExternalNotificationModule::checkButton()
+{
+    ClickType result = NONE;
+    int reading = digitalRead(CUSTOM_BUTTON_PIN);
+
+    // Debounce logic
+    if (reading != lastButtonState) {
+        lastDebounceTime = millis();
+    }
+    
+    if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
+        if (reading != buttonState) {
+            buttonState = reading;
+            if (buttonState == LOW) { // Button pressed (active low with pullup)
+                clickCount++;
+                lastClickTime = millis();
+            }
+        }
+    }
+    lastButtonState = reading;
+
+    // Check for click patterns after timeout
+    if (clickCount > 0 && (millis() - lastClickTime > CLICK_TIMEOUT)) {
+        if (clickCount == 1) {
+            result = SINGLE_CLICK;
+        } else if (clickCount == 2) {
+            result = DOUBLE_CLICK;
+        } else if (clickCount >= 3) {
+            result = TRIPLE_CLICK;
+        }
+        clickCount = 0;
+    }
+
+    return result;
+}
+
+/**
+ * Send message to Telegram bot with metadata
+ */
+void ExternalNotificationModule::sendTelegramMessage(const meshtastic_MeshPacket &packet)
+{
+    if (!WiFi.isConnected()) {
+        LOG_WARN("Cannot send to Telegram - WiFi not connected");
+        return;
+    }
+    
+    if (botToken == "YOUR_TELEGRAM_BOT_TOKEN" || chatID == "YOUR_TELEGRAM_CHAT_ID") {
+        LOG_WARN("Telegram credentials not configured");
+        return;
+    }
+
+    HTTPClient http;
+    String url = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+    
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    
+    // Extract message text
+    String messageText = "Message data unavailable";
+    if (packet.decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && packet.decoded.payload.size > 0) {
+        messageText = String((char *)packet.decoded.payload.bytes);
+    }
+    
+    // Format sender ID
+    char fromID[32];
+    snprintf(fromID, sizeof(fromID), "!%08x", packet.from);
+    
+    // Build JSON payload
+    StaticJsonDocument<512> doc;
+    doc["chat_id"] = chatID;
+    
+    String messageBody = "📡 Meshtastic Message\n\n";
+    messageBody += "From: " + String(fromID) + "\n";
+    messageBody += "Text: " + messageText + "\n";
+    messageBody += "RSSI: " + String(packet.rx_rssi) + " dBm\n";
+    messageBody += "SNR: " + String(packet.rx_snr) + " dB\n";
+    messageBody += "Hop Limit: " + String(packet.hop_limit) + "\n";
+    
+    doc["text"] = messageBody;
+    
+    String payload;
+    serializeJson(doc, payload);
+    
+    int httpCode = http.POST(payload);
+    
+    if (httpCode > 0) {
+        LOG_INFO("Telegram message sent, response code: %d", httpCode);
+        if (httpCode == HTTP_CODE_OK) {
+            String response = http.getString();
+            LOG_DEBUG("Telegram response: %s", response.c_str());
+        }
+    } else {
+        LOG_ERROR("Telegram send failed: %s", http.errorToString(httpCode).c_str());
+    }
+    
+    http.end();
+}
+
+#endif // ARCH_ESP32
