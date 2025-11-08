@@ -467,7 +467,7 @@ ExternalNotificationModule::ExternalNotificationModule()
         pixels.setBrightness(moduleConfig.ambient_lighting.current);
 #endif
 
-        // Initialize custom pins for Lora-Shuttle
+        // Initialize custom pins for Lora-Shuttle board
         pinMode(CUSTOM_LED_PIN, OUTPUT);
         digitalWrite(CUSTOM_LED_PIN, LOW);
         
@@ -476,7 +476,7 @@ ExternalNotificationModule::ExternalNotificationModule()
         
         pinMode(CUSTOM_BUTTON_PIN, INPUT_PULLUP);
         
-        LOG_INFO("Custom Lora-Shuttle pins initialized: LED=%d, BUZZER=%d, BUTTON=%d", 
+        LOG_INFO("Lora-Shuttle custom pins initialized: LED=%d, BUZZER=%d, BUTTON=%d", 
                  CUSTOM_LED_PIN, CUSTOM_BUZZER_PIN, CUSTOM_BUTTON_PIN);
     } else {
         LOG_INFO("External Notification Module Disabled");
