@@ -1,0 +1,27 @@
+// Custom configuration for Lora-Shuttle board
+// Copy this file to custom_config.h and edit your settings
+
+#pragma once
+
+// ============================================
+// Pin Configuration
+// ============================================
+#define CUSTOM_LED_PIN 0          // GPIO0 for LED
+#define CUSTOM_BUZZER_PIN 1       // GPIO1 for buzzer/speaker
+#define CUSTOM_BUTTON_PIN 2       // GPIO2 for button
+
+// ============================================
+// Timing Configuration
+// ============================================
+#define DEBOUNCE_DELAY 50         // Button debounce delay (ms)
+#define BLINK_INTERVAL 500        // LED blink interval (ms)
+#define BEEP_INTERVAL 60000       // Beep interval (ms) - 60000 = 1 minute
+#define CLICK_TIMEOUT 500         // Timeout between clicks (ms)
+
+// ============================================
+// Telegram Bot Configuration
+// ============================================
+// Get your bot token from @BotFather: https://t.me/BotFather
+// Get your chat ID from @userinfobot: https://t.me/userinfobot
+#define TELEGRAM_BOT_TOKEN "YOUR_TELEGRAM_BOT_TOKEN"
+#define TELEGRAM_CHAT_ID "YOUR_TELEGRAM_CHAT_ID"

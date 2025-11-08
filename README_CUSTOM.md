@@ -29,24 +29,43 @@ Custom functionality added to `ExternalNotificationModule` for PROKYBER LORA-Shu
 - Phone connects via Bluetooth
 - Button single-click
 
-## Telegram Configuration
+## Configuration
 
-Before building, configure Telegram:
+### Step 1: Create Custom Config File
 
-1. Create bot via [@BotFather](https://t.me/BotFather)
-2. Get bot token
-3. Get your Chat ID (via [@userinfobot](https://t.me/userinfobot))
-4. Open file `src/modules/ExternalNotificationModule.cpp`
-5. Find lines (around 77-78):
+```bash
+cd src/modules
+cp custom_config.h.example custom_config.h
+```
+
+### Step 2: Edit Configuration
+
+Open `src/modules/custom_config.h` and configure:
+
+1. **Pin Configuration** (if needed):
    ```cpp
-   String botToken = "YOUR_TELEGRAM_BOT_TOKEN";
-   String chatID = "YOUR_TELEGRAM_CHAT_ID";
+   #define CUSTOM_LED_PIN 0
+   #define CUSTOM_BUZZER_PIN 1
+   #define CUSTOM_BUTTON_PIN 2
    ```
-6. Replace with your real values:
+
+2. **Telegram Bot** (if using WiFi integration):
+   - Create bot via [@BotFather](https://t.me/BotFather)
+   - Get bot token
+   - Get your Chat ID (via [@userinfobot](https://t.me/userinfobot))
+   
    ```cpp
-   String botToken = "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11";
-   String chatID = "123456789";
+   #define TELEGRAM_BOT_TOKEN "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+   #define TELEGRAM_CHAT_ID "123456789"
    ```
+
+3. **Timing Intervals** (optional):
+   ```cpp
+   #define BLINK_INTERVAL 500     // LED blink interval (ms)
+   #define BEEP_INTERVAL 60000    // Beep interval (ms)
+   ```
+
+**Note**: The `custom_config.h` file is ignored by git (your secrets stay private)
 
 ## VS Code and PlatformIO Setup
 
@@ -116,7 +135,7 @@ GPIO1 and GPIO2 will be occupied! Change pins in code to other free GPIOs.
 
 ### Changing Pins
 
-Open `src/modules/ExternalNotificationModule.cpp` and modify (around line 72):
+Open `src/modules/custom_config.h` and modify:
 
 ```cpp
 #define CUSTOM_LED_PIN 0          // Your pin
@@ -143,7 +162,7 @@ if (click == TRIPLE_CLICK) {
 
 ### Changing Intervals
 
-At file beginning (around line 74):
+Open `src/modules/custom_config.h` and modify:
 
 ```cpp
 #define BLINK_INTERVAL 500        // LED blink frequency (ms)

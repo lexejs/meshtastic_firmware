@@ -29,6 +29,14 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
+
+// Try to include custom config, fall back to example if not found
+#if __has_include("custom_config.h")
+#include "custom_config.h"
+#else
+#include "custom_config.h.example"
+#warning "Using example config - copy custom_config.h.example to custom_config.h and configure your settings"
+#endif
 #endif
 
 #ifdef HAS_NCP5623
@@ -80,18 +88,11 @@ bool ascending = true;
 
 #define ASCII_BELL 0x07
 
-// Custom settings for Lora-Shuttle board
-#define CUSTOM_LED_PIN 0          // GPIO0 for LED
-#define CUSTOM_BUZZER_PIN 1       // GPIO1 for buzzer
-#define CUSTOM_BUTTON_PIN 2       // GPIO2 for button
-#define DEBOUNCE_DELAY 50         // 50ms debounce
-#define BLINK_INTERVAL 500        // Blink every 500ms
-#define BEEP_INTERVAL 60000       // Beep every minute
-#define CLICK_TIMEOUT 500         // 500ms between clicks
-
-// Telegram settings - replace with your values
-String botToken = "YOUR_TELEGRAM_BOT_TOKEN";
-String chatID = "YOUR_TELEGRAM_CHAT_ID";
+// Telegram bot credentials (from custom_config.h)
+#if defined(ARCH_ESP32)
+String botToken = TELEGRAM_BOT_TOKEN;
+String chatID = TELEGRAM_CHAT_ID;
+#endif
 
 meshtastic_RTTTLConfig rtttlConfig;
 
